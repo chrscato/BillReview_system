@@ -1,0 +1,7 @@
+# requirements.txt
+pandas>=2.0.0
+numpy>=1.24.0
+sqlite3  # Part of Python standard library
+pathlib  # Part of Python standard library
+typing  # Part of Python standard library
+dataclasses  # Part of Python standard library for Python >= 3.7

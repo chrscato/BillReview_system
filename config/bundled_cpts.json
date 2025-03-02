@@ -1,0 +1,20 @@
+{
+    "MR Arthrogram Shoulder": ["73222", "77002", "23350"],
+    "MR Arthrogram Hip": ["73722", "77002", "27093"],
+    "MR Arthrogram Knee": ["73722", "77002", "27370"],
+    "MR Arthrogram Wrist": ["73222", "77002", "25246"],
+    "MR Arthrogram Elbow": ["73222", "77002", "24220"],
+    "MR Arthrogram Ankle": ["73722", "77002", "27648"],
+    "Therapeutic Injection – Shoulder": ["77002", "20610"],
+    "Therapeutic Injection – Hip": ["77002", "20610"],
+    "Therapeutic Injection – Knee": ["77002", "20610"],
+    "Therapeutic Injection – Wrist": ["77002", "20605"],
+    "Therapeutic Injection – Elbow": ["77002", "20605"],
+    "Therapeutic Injection – Ankle": ["77002", "20605"],
+    "EMG Visit": ["95910", "99203", "95886"],
+    "EMG Visit - 2": ["95910", "99203", "95885"],
+    "EMG Visit - 3": ["95913", "99203", "95886"],
+    "EMG Visit - 4": ["95913", "99203", "95885"],
+    "EMG Visit - 5": ["95910", "99203", "95885"],
+    "EMG Visit - 6": ["95910", "99203", "95886"]
+}

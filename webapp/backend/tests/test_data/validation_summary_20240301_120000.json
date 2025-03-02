@@ -1,0 +1,23 @@
+{
+  "session_id": "test-session-1",
+  "timestamp": "2024-03-01T12:00:00",
+  "total_files": 10,
+  "passed_files": 7,
+  "failed_files": 3,
+  "failure_breakdown": {
+    "modifier_check": 1,
+    "rate_validation": 2
+  },
+  "common_errors": [
+    {
+      "error_code": "MOD_001",
+      "count": 1,
+      "description": "Invalid modifier combination or usage"
+    },
+    {
+      "error_code": "RATE_001",
+      "count": 2,
+      "description": "Rate does not match expected value"
+    }
+  ]
+} 
