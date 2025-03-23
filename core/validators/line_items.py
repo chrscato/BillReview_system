@@ -19,61 +19,31 @@ class LineItemValidator:
             return json.load(f)
         
     def get_proc_category(self, cpt: str) -> str:
-        """Get procedure category from dim_proc"""
+        """Get procedure category from dim_proc with improved error handling."""
         match = self.dim_proc_df[self.dim_proc_df['proc_cd'] == str(cpt)]
         if match.empty:
+            print(f"Warning: CPT code {cpt} not found in dim_proc")
             return None
-        return match['proc_category'].iloc[0]
-
-
-    def check_bundled_cpts(self, hcfa_cpts: Set[str], order_cpts: Set[str]) -> Dict:
-        """Ensure HCFA and Order CPTs belong to the same bundle and have no extra codes."""
-        combined_cpts = hcfa_cpts | order_cpts  # Combine HCFA & Order CPTs
-
-        for bundle_type, required_cpts in self.bundled_cpts.items():
-            required_set = set(required_cpts)
-
-            # ✅ Ensure both HCFA and Order contain at least one CPT from the bundle
-            if not hcfa_cpts.intersection(required_set) or not order_cpts.intersection(required_set):
-                continue  # Skip if neither side contains part of the bundle
-
-            # ✅ Fail if there are CPTs outside of the detected bundle
-            if combined_cpts - required_set:
-                return {
-                    "status": "FAIL",
-                    "reason": f"Order contains CPT codes outside the detected {bundle_type} bundle.",
-                    "unexpected_cpts": list(combined_cpts - required_set),
-                    "message": "Unexpected CPT codes detected in order. Validation failed."
-                }
-
-            # ✅ Allow minor mismatches but flag them for review
-            missing_cpts = required_set - combined_cpts
-            return {
-                "status": "BUNDLED",
-                "bundle_type": bundle_type,
-                "message": f"Order identified as {bundle_type} bundle.",
-                "missing_cpts": list(missing_cpts),
-                "note": "Minor CPT mismatches found but proceeding."
-            }
-
-        return None  # No valid bundle found
+        
+        category = match['proc_category'].iloc[0]
+        if not category or category == "0" or str(category).strip() == "":
+            print(f"Warning: CPT code {cpt} has invalid category: '{category}'")
+        
+        return category
 
     def validate(self, hcfa_lines: List[Dict], order_lines: pd.DataFrame) -> Dict:
-        """Validate CPT codes, handling both bundled and standard cases."""
+        #"""Validate CPT codes, with enhanced category validation."""
+        # Filter out unacceptable CPT codes
         filtered_hcfa_lines = [
             line for line in hcfa_lines 
             if str(line['cpt']) not in {"51655"}
         ]
 
+        # Extract CPT codes from HCFA and order data
         hcfa_codes = set(str(line['cpt']) for line in filtered_hcfa_lines)
         order_codes = set(str(line['CPT']) for _, line in order_lines.iterrows())
 
-        # ✅ STEP 1: Check for bundled claim FIRST
-        bundled_result = self.check_bundled_cpts(hcfa_codes, order_codes)
-        if bundled_result:
-            return bundled_result  # Proceed only if no unrelated CPTs exist
-
-        # ✅ STEP 2: Perform Standard Line Item Validation (Exact Match Check)
+        # STEP 1: Perform exact match check first (simplest case)
         if hcfa_codes == order_codes:
             return {
                 "status": "PASS",
@@ -82,7 +52,7 @@ class LineItemValidator:
                 "message": "Exact match found."
             }
 
-        # ✅ STEP 3: Perform Category-Based Validation (If No Exact Match)
+        # STEP 2: Build mapping of line items for reference
         line_item_mapping = {}
         for hcfa_line in filtered_hcfa_lines:
             hcfa_cpt = str(hcfa_line['cpt'])
@@ -90,31 +60,65 @@ class LineItemValidator:
             if not matching_lines.empty:
                 line_item_mapping[hcfa_cpt] = matching_lines['id'].tolist()
 
+        # STEP 3: Build category mappings with validation
         hcfa_categories = {}
+        invalid_categories = []
         ancillary_codes = set()
+        
         for line in filtered_hcfa_lines:
-            cpt = line['cpt']
+            cpt = str(line['cpt'])
             cat = self.get_proc_category(cpt)
-            if cat:
-                hcfa_categories[cpt] = cat
-                if cat.lower() == "ancillary":
-                    ancillary_codes.add(cpt)
+            
+            # Check for invalid/missing categories
+            if not cat or cat == "0" or cat.strip() == "":
+                invalid_categories.append({
+                    "cpt": cpt,
+                    "source": "hcfa",
+                    "category": cat,
+                    "reason": "Missing or invalid category"
+                })
+            
+            hcfa_categories[cpt] = cat or "unknown"
+            if cat and cat.lower() == "ancillary":
+                ancillary_codes.add(cpt)
 
         order_categories = {}
         for _, line in order_lines.iterrows():
-            cpt = line['CPT']
+            cpt = str(line['CPT'])
             cat = self.get_proc_category(cpt)
-            if cat:
-                order_categories[cpt] = cat
+            
+            # Check for invalid/missing categories
+            if not cat or cat == "0" or cat.strip() == "":
+                invalid_categories.append({
+                    "cpt": cpt,
+                    "source": "order",
+                    "category": cat,
+                    "reason": "Missing or invalid category"
+                })
+            
+            order_categories[cpt] = cat or "unknown"
 
-        comparison_details = {
-            "hcfa_codes": list(hcfa_codes),
-            "order_codes": list(order_codes),
-            "hcfa_categories": hcfa_categories,
-            "order_categories": order_categories
-        }
+        # STEP 4: If we have category issues, report them as failures first
+        if invalid_categories:
+            return {
+                "status": "FAIL",
+                "reason": "Missing or invalid procedure categories",
+                "invalid_categories": invalid_categories,
+                "comparison_details": {
+                    "hcfa_codes": list(hcfa_codes),
+                    "order_codes": list(order_codes),
+                    "hcfa_categories": hcfa_categories,
+                    "order_categories": order_categories
+                },
+                "message": f"Found {len(invalid_categories)} CPT codes with missing or invalid categories",
+                "resolution_steps": [
+                    "Update dim_proc table with valid categories for these CPT codes",
+                    "Verify CPT codes are correctly entered",
+                    "Check for typos in procedure codes"
+                ]
+            }
 
-        # ✅ STEP 4: If categories match, mark as a category match pass
+        # STEP 5: Perform category-based validation for non-ancillary codes
         non_ancillary_hcfa = [cat for cpt, cat in hcfa_categories.items() if cpt not in ancillary_codes]
         non_ancillary_order = [cat for cpt, cat in order_categories.items() if cpt not in ancillary_codes]
 
@@ -126,19 +130,47 @@ class LineItemValidator:
         for cat in non_ancillary_order:
             order_category_counts[cat] = order_category_counts.get(cat, 0) + 1
 
+        # Check category counts
+        category_mismatches = []
         for cat, count in hcfa_category_counts.items():
             if cat not in order_category_counts or order_category_counts[cat] < count:
-                return {
-                    "status": "FAIL",
-                    "reason": f"Category '{cat}' count mismatch (HCFA: {count}, Orders: {order_category_counts.get(cat, 0)})",
-                    "comparison_details": comparison_details
-                }
-            order_category_counts[cat] -= count
+                # Find specific CPT codes involved in the mismatch
+                hcfa_cpts = [cpt for cpt, c in hcfa_categories.items() if c == cat]
+                order_cpts = [cpt for cpt, c in order_categories.items() if c == cat]
+                
+                category_mismatches.append({
+                    "category": cat,
+                    "hcfa_count": count,
+                    "order_count": order_category_counts.get(cat, 0),
+                    "difference": count - order_category_counts.get(cat, 0),
+                    "hcfa_cpts": hcfa_cpts,
+                    "order_cpts": order_cpts
+                })
 
+        if category_mismatches:
+            return {
+                "status": "FAIL",
+                "reason": "Category count mismatch",
+                "mismatches": category_mismatches,
+                "comparison_details": {
+                    "hcfa_codes": list(hcfa_codes),
+                    "order_codes": list(order_codes),
+                    "hcfa_categories": hcfa_categories,
+                    "order_categories": order_categories
+                },
+                "message": f"Found {len(category_mismatches)} category mismatches between HCFA and order data."
+            }
+
+        # STEP 6: If we get here, categories match but not exact codes - this is a pass
         return {
             "status": "PASS",
             "match_type": "category_match",
             "categories": list(set(non_ancillary_hcfa)),
             "line_item_mapping": line_item_mapping,
-            "comparison_details": comparison_details
+            "comparison_details": {
+                "hcfa_codes": list(hcfa_codes),
+                "order_codes": list(order_codes),
+                "hcfa_categories": hcfa_categories,
+                "order_categories": order_categories
+            }
         }
