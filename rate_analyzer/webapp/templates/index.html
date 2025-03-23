@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+
+{% block title %}Rate Validation Analyzer - Home{% endblock %}
+
+{% block content %}
+<div class="jumbotron">
+    <h1 class="display-4">Rate Validation Analyzer</h1>
+    <p class="lead">Analyze rate validation failures from JSON files, identify patterns, and prioritize issues.</p>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">Upload Validation File</h5>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="file">Select a validation failures JSON file:</label>
+                        <div class="custom-file">
+                            <input type="file" class="custom-file-input" id="file" name="file" accept=".json">
+                            <label class="custom-file-label" for="file">Choose file...</label>
+                        </div>
+                        <small class="form-text text-muted">Upload a validation_failures_*.json file</small>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Upload & Analyze</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5 class="card-title mb-0">Use Latest Validation File</h5>
+            </div>
+            <div class="card-body">
+                {% if latest_file.path %}
+                    <p><strong>Latest File:</strong> {{ latest_file.name }}</p>
+                    <p><strong>Last Modified:</strong> {{ latest_file.modified }}</p>
+                    <a href="{{ url_for('analyze', use_latest='true') }}" class="btn btn-success">
+                        Analyze Latest File
+                    </a>
+                {% else %}
+                    <div class="alert alert-warning">
+                        No validation files found in the default directory.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        {% if has_analysis %}
+        <div class="card mt-3">
+            <div class="card-header bg-info text-white">
+                <h5 class="card-title mb-0">View Results</h5>
+            </div>
+            <div class="card-body">
+                <p>You have a completed analysis available.</p>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-info">View Dashboard</a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Show selected filename in file input
+    $('.custom-file-input').on('change', function() {
+        let fileName = $(this).val().split('\\').pop();
+        $(this).next('.custom-file-label').html(fileName || 'Choose file...');
+    });
+</script>
+{% endblock %}

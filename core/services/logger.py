@@ -32,43 +32,70 @@ class JSONValidationLogger:
         self.session_id = str(uuid.uuid4())
         self.results: List[ValidationResult] = []
 
-    def _create_enhanced_failure_record(self, result: ValidationResult) -> Dict[str, Any]:
-        """Create a detailed failure record with enhanced debugging information."""
+    def _create_failure_record(self, result: ValidationResult) -> Dict[str, Any]:
+        """Create a simplified failure record with all data needed for correction interfaces."""
+        # Determine the error code based on validation type
         error_code = self._determine_error_code(result)
         
-        return {
-            "file_info": {
-                "file_name": result.file_name,
-                "order_id": result.order_id,
-                "timestamp": datetime.now().isoformat(),
-                "validation_session_id": self.session_id
-            },
-            "validation_summary": {
-                "status": result.status,
-                "validation_type": result.validation_type,
-                "severity_level": self._determine_severity(result),
-                "total_checks": len(result.details.get("results", [])) if hasattr(result, "details") else 0,
-                "failed_checks": sum(1 for r in result.details.get("results", []) 
-                                   if r.get("status") == "FAIL") if hasattr(result, "details") else 1
-            },
-            "failure_details": {
-                "validation_step": result.validation_type,
-                "error_code": error_code,
-                "error_message": result.messages[0] if result.messages else "Validation failed",
-                "error_description": ValidationErrorCode.get_description(error_code),
-                "expected_value": result.details.get("expected", "N/A"),
-                "actual_value": result.details.get("actual", "N/A"),
-                "suggestion": self._generate_suggestion(result)
-            },
-            "context": {
-                "hcfa_data": result.source_data.get("hcfa", {}),
-                "reference_data": {
-                    "provider_info": result.source_data.get("db_provider_info", {}),
-                    "patient_info": result.source_data.get("db_patient_info", {})
-                },
-                "comparison_details": result.details.get("comparison_details", {})
-            }
+        # Safely get source data
+        source_data = result.source_data or {}
+        
+        # Safely get provider_info with fallback to empty dict
+        provider_info = source_data.get("db_provider_info") or {}
+        
+        # Basic file and validation info
+        failure_record = {
+            "file_name": result.file_name,
+            "order_id": result.order_id,
+            "patient_name": result.patient_name,
+            "date_of_service": result.date_of_service,
+            "validation_type": result.validation_type,
+            "error_code": error_code,
+            "error_description": ValidationErrorCode.get_description(error_code),
+            "timestamp": datetime.now().isoformat(),
+            "session_id": self.session_id,
+            "status": "FAIL",
+            "message": result.messages[0] if result.messages else f"{result.validation_type} validation failed",
+            "provider_info": provider_info,  # Include the entire provider_info dict
+            "tin": provider_info.get("TIN", "")  # Extract TIN directly for easier access
         }
+        
+        # Add validation-specific details
+        if result.validation_type == "rate":
+            # For rate failures, include rate information
+            failure_record.update({
+                "provider_network": provider_info.get("Provider Network", "Unknown"),
+                "rates": result.details.get("results", []),
+                "total_expected_rate": result.details.get("total_rate", 0)
+            })
+            
+        elif result.validation_type == "line_items":
+            # For line item failures, include comparison details
+            failure_record.update({
+                "comparison_details": result.details.get("comparison_details", {}),
+                "db_line_items": source_data.get("db_line_items", []),
+                "hcfa_line_items": source_data.get("hcfa", {}).get("line_items", []) if source_data.get("hcfa") else []
+            })
+            
+        elif result.validation_type == "modifier_check":
+            # For modifier failures, include invalid modifiers and line items
+            failure_record.update({
+                "invalid_modifiers": result.details.get("invalid_modifiers", []),
+                "line_items": source_data.get("hcfa", {}).get("line_items", []) if source_data.get("hcfa") else []
+            })
+            
+        elif result.validation_type == "unit_check":
+            # For unit check failures, include unit violations
+            failure_record.update({
+                "violations": result.details.get("details", {}).get("non_ancillary_violations", []) if result.details.get("details") else [],
+                "line_items": source_data.get("hcfa", {}).get("line_items", []) if source_data.get("hcfa") else []
+            })
+            
+        # Include raw source data to ensure nothing is lost but avoid duplication
+        if "hcfa" not in failure_record and "hcfa" in source_data:
+            failure_record["hcfa"] = source_data["hcfa"]
+            
+        return failure_record
 
     def _determine_error_code(self, result: ValidationResult) -> str:
         """Map validation failures to standardized error codes."""
@@ -85,33 +112,12 @@ class JSONValidationLogger:
             return ValidationErrorCode.LINE_ITEM_MISMATCH
         return "UNK_001"
 
-    def _determine_severity(self, result: ValidationResult) -> str:
-        """Determine the severity level of the validation failure."""
-        if result.validation_type in ["rate", "line_items"]:
-            return "ERROR"
-        elif result.validation_type in ["modifier", "units"]:
-            return "WARNING"
-        return "INFO"
-
-    def _generate_suggestion(self, result: ValidationResult) -> str:
-        """Generate user-friendly suggestions for fixing the validation error."""
-        validation_type = result.validation_type.lower()
-        if "modifier" in validation_type:
-            return "Review modifier usage and ensure compatibility with procedure code."
-        elif "unit" in validation_type:
-            return "Check unit count against procedure code guidelines."
-        elif "rate" in validation_type:
-            return "Verify rate calculation and provider network status."
-        elif "bundle" in validation_type:
-            return "Review bundle configuration and component procedures."
-        return "Review validation details and compare with reference data."
-
     def log_validation(self, result: ValidationResult):
-        """Append validation result to internal list with enhanced tracking."""
+        """Append validation result to internal list."""
         self.results.append(result)
 
     def save(self):
-        """Save results to separate PASS and FAIL JSON files with enhanced error tracking."""
+        """Save results to separate PASS and FAIL JSON files with simplified failure format."""
         passes, failures = [], []
         failure_types = Counter()
 
@@ -119,9 +125,21 @@ class JSONValidationLogger:
             if r.status == "PASS" and all(v.status == "PASS" for v in self.results if v.file_name == r.file_name):
                 passes.append(self._create_pass_record(r))
             else:
-                failure_record = self._create_enhanced_failure_record(r)
-                failures.append(failure_record)
-                failure_types[r.validation_type] += 1
+                try:
+                    failure_record = self._create_failure_record(r)
+                    failures.append(failure_record)
+                    failure_types[r.validation_type] += 1
+                except Exception as e:
+                    print(f"Error creating failure record: {e}")
+                    # Create a minimal failure record to avoid losing data
+                    failures.append({
+                        "file_name": r.file_name,
+                        "status": "FAIL",
+                        "validation_type": r.validation_type,
+                        "error": f"Error creating failure record: {str(e)}",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    failure_types[r.validation_type] += 1
 
         # Save to JSON files
         passes_file = self.log_dir / f"validation_passes_{self.timestamp}.json"
@@ -166,16 +184,16 @@ class JSONValidationLogger:
         }
 
     def _create_pass_record(self, result: ValidationResult) -> Dict[str, Any]:
-        """Create a standardized pass record."""
+        """Create a standardized pass record (unchanged from original implementation)."""
         enriched_line_items = []
         for line in result.details.get("results", []):
             enriched_line_items.append({
                 "date_of_service": result.date_of_service,
-                "cpt": line["cpt"],
-                "modifier": line.get("modifier"),
-                "units": line.get("units"),
-                "charge": line.get("charge"),
-                "validated_rate": line["validated_rate"]
+                "cpt": line.get("cpt", ""),
+                "modifier": line.get("modifier", ""),
+                "units": line.get("units", 1),
+                "charge": line.get("charge", "0.00"),
+                "validated_rate": line.get("validated_rate", 0)
             })
 
         return {
@@ -191,8 +209,8 @@ class JSONValidationLogger:
                 "failed_checks": 0
             },
             "data": {
-                "patient_info": result.source_data.get("db_patient_info", {}),
-                "provider_info": result.source_data.get("db_provider_info", {}),
+                "patient_info": result.source_data.get("db_patient_info", {}) if result.source_data else {},
+                "provider_info": result.source_data.get("db_provider_info", {}) if result.source_data else {},
                 "date_of_service": result.date_of_service,
                 "line_items": enriched_line_items,
                 "comparison_details": result.details.get("comparison_details", {})
@@ -203,7 +221,7 @@ class JSONValidationLogger:
         """Analyze failures to identify common error patterns."""
         error_patterns = Counter()
         for failure in failures:
-            error_code = failure["failure_details"]["error_code"]
+            error_code = failure.get("error_code", "UNK_001")
             error_patterns[error_code] += 1
 
         return [

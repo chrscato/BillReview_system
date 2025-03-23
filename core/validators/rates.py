@@ -45,15 +45,14 @@ class RateValidator:
                 rate_results.append({**line, "status": "PASS"})
                 continue
 
-            # ✅ PPO Rate check (for in-network providers)
-            if provider_network != "Out of Network":
-                ppo_query = "SELECT rate FROM ppo WHERE TIN = ? AND proc_cd = ?"
-                ppo_rate = pd.read_sql_query(ppo_query, self.conn, params=[clean_provider_tin, cpt])
+            # ✅ PPO Rate check (for all providers)
+            ppo_query = "SELECT rate FROM ppo WHERE TRIM(TIN) = ? AND proc_cd = ?"
+            ppo_rate = pd.read_sql_query(ppo_query, self.conn, params=[clean_provider_tin, cpt])
 
-                if not ppo_rate.empty:
-                    line["validated_rate"] = float(ppo_rate['rate'].iloc[0])
-                    rate_results.append({**line, "status": "PASS"})
-                    continue
+            if not ppo_rate.empty:
+                line["validated_rate"] = float(ppo_rate['rate'].iloc[0])
+                rate_results.append({**line, "status": "PASS"})
+                continue
 
             # ✅ OTA Rate check
             ota_query = "SELECT rate FROM current_otas WHERE ID_Order_PrimaryKey = ? AND CPT = ?"

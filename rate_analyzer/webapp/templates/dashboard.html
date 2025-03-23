@@ -1,0 +1,296 @@
+{% extends 'base.html' %}
+
+{% block title %}Rate Validation Analyzer - Dashboard{% endblock %}
+
+{% block head %}
+<!-- Plotly.js for charts -->
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center">
+    <h1>Rate Validation Analysis</h1>
+    <div>
+        <a href="{{ url_for('update_rates') }}" class="btn btn-warning mr-2">
+            <i class="fa fa-edit"></i> Update PPO Rates
+        </a>
+        <a href="{{ url_for('download_report', report_type='excel') }}" class="btn btn-success">
+            <i class="fa fa-download"></i> Download Excel Report
+        </a>
+        <a href="{{ url_for('download_report', report_type='json') }}" class="btn btn-info">
+            <i class="fa fa-download"></i> Download JSON
+        </a>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <!-- Overall Statistics -->
+    <div class="col-md-4">
+        <div class="card text-white bg-primary mb-3">
+            <div class="card-header">Total Failures</div>
+            <div class="card-body">
+                <h1 class="card-title display-4">{{ summary.total_failures }}</h1>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card text-white bg-success mb-3">
+            <div class="card-header">Unique Providers</div>
+            <div class="card-body">
+                <h1 class="card-title display-4">{{ summary.unique_providers.count }}</h1>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card text-white bg-info mb-3">
+            <div class="card-header">Unique CPT Codes</div>
+            <div class="card-body">
+                <h1 class="card-title display-4">{{ summary.cpt_analysis.count }}</h1>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-2">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Financial Impact</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6">
+                        <h3>${{ "%.2f"|format(summary.financial_impact.total_charge) }}</h3>
+                        <p class="text-muted">Total Charge Amount</p>
+                    </div>
+                    <div class="col-6">
+                        <h3>${{ "%.2f"|format(summary.financial_impact.average_charge) }}</h3>
+                        <p class="text-muted">Average Charge</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Network Status</h5>
+            </div>
+            <div class="card-body">
+                <div id="network-chart" style="height: 200px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">High Priority Issues</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead class="thead-dark">
+                            <tr>
+                                <th>CPT Code</th>
+                                <th>Provider (TIN)</th>
+                                <th>Failure Count</th>
+                                <th>Total Charge</th>
+                                <th>Priority Score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for issue in summary.high_priority_issues %}
+                            <tr>
+                                <td>{{ issue.cpt }}</td>
+                                <td>{{ issue.provider_name }} ({{ issue.provider_tin }})</td>
+                                <td>{{ issue.frequency }}</td>
+                                <td>${{ "%.2f"|format(issue.total_charge) }}</td>
+                                <td>
+                                    <div class="progress">
+                                        <div class="progress-bar bg-danger" role="progressbar" 
+                                             style="width: {{ issue.priority_score }}%">
+                                            {{ "%.1f"|format(issue.priority_score) }}
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Top Providers (TINs)</h5>
+            </div>
+            <div class="card-body">
+                <div id="provider-chart" style="height: 400px;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Top CPT Codes</h5>
+            </div>
+            <div class="card-body">
+                <div id="cpt-chart" style="height: 400px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Top CPT-TIN Combinations</h5>
+                <button class="btn btn-sm btn-outline-primary" id="toggle-combinations">Show All</button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped" id="combinations-table">
+                        <thead class="thead-light">
+                            <tr>
+                                <th>CPT Code</th>
+                                <th>Provider (TIN)</th>
+                                <th>Failure Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for combo in summary.cpt_analysis.top_cpt_tin_combinations %}
+                            <tr>
+                                <td>{{ combo.cpt }}</td>
+                                <td>{{ combo.provider_name }} ({{ combo.tin }})</td>
+                                <td>{{ combo.count }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    // Network Status Pie Chart
+    const networkLabels = [];
+    const networkValues = [];
+    
+    {% for status, count in summary.network_status.counts.items() %}
+    networkLabels.push("{{ status }}");
+    networkValues.push({{ count }});
+    {% endfor %}
+    
+    const networkData = [{
+        labels: networkLabels,
+        values: networkValues,
+        hole: 0.4,
+        type: 'pie'
+    }];
+    
+    const networkLayout = {
+        margin: {t: 0, b: 0, l: 0, r: 0},
+        showlegend: true,
+        legend: {
+            orientation: "h",
+            x: 0,
+            y: -0.2
+        }
+    };
+    
+    Plotly.newPlot('network-chart', networkData, networkLayout, {responsive: true});
+    
+    // Top Providers Bar Chart
+    const providerNames = [];
+    const providerCounts = [];
+    
+    {% for tin in summary.unique_providers.top_providers[:5] %}
+    {% set provider = summary.unique_providers.providers[tin] %}
+    providerNames.push("{{ provider.name }} ({{ tin }})");
+    providerCounts.push({{ provider.failure_count }});
+    {% endfor %}
+    
+    const providerData = [{
+        x: providerCounts,
+        y: providerNames,
+        type: 'bar',
+        orientation: 'h',
+        marker: {
+            color: 'rgba(50, 171, 96, 0.7)'
+        }
+    }];
+    
+    const providerLayout = {
+        margin: {l: 150, r: 10, t: 10, b: 50},
+        xaxis: {
+            title: 'Failure Count'
+        }
+    };
+    
+    Plotly.newPlot('provider-chart', providerData, providerLayout, {responsive: true});
+    
+    // Top CPT Codes Bar Chart
+    const cptCodes = [];
+    const cptCounts = [];
+    
+    {% for cpt in summary.cpt_analysis.top_cpt_codes[:5] %}
+    {% set info = summary.cpt_analysis.cpt_codes[cpt] %}
+    cptCodes.push("{{ cpt }}");
+    cptCounts.push({{ info.failure_count }});
+    {% endfor %}
+    
+    const cptData = [{
+        x: cptCounts,
+        y: cptCodes,
+        type: 'bar',
+        orientation: 'h',
+        marker: {
+            color: 'rgba(55, 128, 191, 0.7)'
+        }
+    }];
+    
+    const cptLayout = {
+        margin: {l: 50, r: 10, t: 10, b: 50},
+        xaxis: {
+            title: 'Failure Count'
+        }
+    };
+    
+    Plotly.newPlot('cpt-chart', cptData, cptLayout, {responsive: true});
+    
+    // Toggle combinations table
+    let showingAll = false;
+    $('#toggle-combinations').click(function() {
+        if (showingAll) {
+            $('#combinations-table tbody tr').slice(5).hide();
+            $(this).text('Show All');
+        } else {
+            $('#combinations-table tbody tr').show();
+            $(this).text('Show Less');
+        }
+        showingAll = !showingAll;
+    });
+    
+    // Initially show only first 5 rows
+    $('#combinations-table tbody tr').slice(5).hide();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,241 @@
+{% extends 'base.html' %}
+
+{% block title %}Rate Validation Analyzer - Update PPO Rates{% endblock %}
+
+{% block head %}
+<style>
+    .nav-tabs .nav-link {
+        border: 1px solid #dee2e6;
+        margin-right: 5px;
+        background-color: #f8f9fa;
+    }
+    .nav-tabs .nav-link.active {
+        background-color: #fff;
+        border-bottom-color: transparent;
+    }
+    .input-group-text {
+        width: 150px;
+    }
+    .card {
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center">
+    <h1>Update PPO Rates</h1>
+    <div>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-primary">
+            <i class="fa fa-chart-bar"></i> Back to Dashboard
+        </a>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <ul class="nav nav-tabs" id="updateTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <a class="nav-link active" id="failures-tab" data-toggle="tab" href="#failures" role="tab" aria-controls="failures" aria-selected="true">
+                    Update from Failures
+                </a>
+            </li>
+            <li class="nav-item" role="presentation">
+                <a class="nav-link" id="category-tab" data-toggle="tab" href="#category" role="tab" aria-controls="category" aria-selected="false">
+                    Category Pricing
+                </a>
+            </li>
+            <li class="nav-item" role="presentation">
+                <a class="nav-link" id="individual-tab" data-toggle="tab" href="#individual" role="tab" aria-controls="individual" aria-selected="false">
+                    Individual Rate
+                </a>
+            </li>
+        </ul>
+        
+        <div class="tab-content" id="updateTabsContent">
+            <!-- Update from Failures Tab -->
+            <div class="tab-pane fade show active" id="failures" role="tabpanel" aria-labelledby="failures-tab">
+                <div class="card mt-4">
+                    <div class="card-body">
+                        <h5 class="card-title">Update Rates from Failure Analysis</h5>
+                        <p class="card-text">This will update rates for all CPT codes in the current failure dataset.</p>
+                        
+                        {% if has_failures %}
+                        <form action="{{ url_for('update_rates_from_failures') }}" method="post">
+                            <div class="form-group">
+                                <label for="defaultRate">Default Rate ($)</label>
+                                <input type="number" class="form-control" id="defaultRate" name="defaultRate" value="500.00" step="0.01" min="0">
+                                <small class="form-text text-muted">This rate will be applied to all CPT codes in the failure dataset.</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="state">Rendering State</label>
+                                <input type="text" class="form-control" id="state" name="state" value="XX" maxlength="2">
+                                <small class="form-text text-muted">Two-letter state code.</small>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-danger">Update Rates for {{ failure_count }} Codes</button>
+                        </form>
+                        {% else %}
+                        <div class="alert alert-warning">
+                            No failure data available. Please analyze a file first.
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Category Pricing Tab -->
+            <div class="tab-pane fade" id="category" role="tabpanel" aria-labelledby="category-tab">
+                <div class="card mt-4">
+                    <div class="card-body">
+                        <h5 class="card-title">Update Rates by Category</h5>
+                        <p class="card-text">Set rates for entire categories of procedure codes at once.</p>
+                        
+                        <form action="{{ url_for('update_category_rates') }}" method="post">
+                            <div class="form-group">
+                                <label for="c_state">Rendering State</label>
+                                <input type="text" class="form-control" id="c_state" name="state" placeholder="e.g., TX" maxlength="2" required>
+                                <small class="form-text text-muted">Two-letter state code.</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="c_tin">TIN</label>
+                                <input type="text" class="form-control" id="c_tin" name="tin" placeholder="e.g., 123456789" required>
+                                <small class="form-text text-muted">Provider Tax ID Number (9 digits).</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="c_provider_name">Provider Name</label>
+                                <input type="text" class="form-control" id="c_provider_name" name="provider_name" placeholder="e.g., ABC Imaging Center" required>
+                            </div>
+                            
+                            <h6 class="mt-4">Rates by Category</h6>
+                            <div class="row">
+                                {% for category in categories %}
+                                <div class="col-md-6 mb-3">
+                                    <div class="input-group">
+                                        <div class="input-group-prepend">
+                                            <span class="input-group-text">{{ category }}</span>
+                                        </div>
+                                        <input type="number" class="form-control" name="rate_{{ category|replace(' ', '_')|replace('/', '_') }}" placeholder="0.00" step="0.01" min="0">
+                                        <div class="input-group-append">
+                                            <span class="input-group-text">$</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary mt-3">Update Category Rates</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Individual Rate Tab -->
+            <div class="tab-pane fade" id="individual" role="tabpanel" aria-labelledby="individual-tab">
+                <div class="card mt-4">
+                    <div class="card-body">
+                        <h5 class="card-title">Update Individual Rate</h5>
+                        <p class="card-text">Update the rate for a specific procedure code.</p>
+                        
+                        <form action="{{ url_for('update_individual_rate') }}" method="post">
+                            <div class="form-group">
+                                <label for="i_state">Rendering State</label>
+                                <input type="text" class="form-control" id="i_state" name="state" placeholder="e.g., TX" maxlength="2" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="i_tin">TIN</label>
+                                <input type="text" class="form-control" id="i_tin" name="tin" placeholder="e.g., 123456789" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="i_provider_name">Provider Name</label>
+                                <input type="text" class="form-control" id="i_provider_name" name="provider_name" placeholder="e.g., ABC Imaging Center" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="i_proc_cd">Procedure Code</label>
+                                <input type="text" class="form-control" id="i_proc_cd" name="proc_cd" placeholder="e.g., 73721" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="i_modifier">Modifier (Optional)</label>
+                                <input type="text" class="form-control" id="i_modifier" name="modifier" placeholder="e.g., RT">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="i_rate">Rate ($)</label>
+                                <input type="number" class="form-control" id="i_rate" name="rate" placeholder="0.00" step="0.01" min="0" required>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary">Update Rate</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if update_result %}
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Update Results</h5>
+            </div>
+            <div class="card-body">
+                {% if update_result.success %}
+                <div class="alert alert-success">
+                    <h5 class="alert-heading">Update Successful!</h5>
+                    <p>{{ update_result.message }}</p>
+                </div>
+                {% else %}
+                <div class="alert alert-danger">
+                    <h5 class="alert-heading">Update Failed</h5>
+                    <p>{{ update_result.message }}</p>
+                </div>
+                {% endif %}
+                
+                {% if update_result.details %}
+                <h6 class="mt-4">Details:</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                        <thead class="thead-light">
+                            <tr>
+                                <th>Status</th>
+                                <th>CPT</th>
+                                <th>TIN</th>
+                                <th>Rate</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for detail in update_result.details %}
+                            <tr>
+                                <td>
+                                    {% if detail.status == 'updated' %}
+                                    <span class="badge badge-success">Updated</span>
+                                    {% else %}
+                                    <span class="badge badge-danger">Failed</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ detail.cpt }}</td>
+                                <td>{{ detail.tin|default('N/A') }}</td>
+                                <td>{{ detail.rate|default('N/A') }}</td>
+                                <td>{{ detail.reason|default('') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
