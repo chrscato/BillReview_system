@@ -56,11 +56,26 @@ class BillReviewApplication:
                 self.logger.log_validation(ValidationResult(**base_result, status="FAIL", validation_type="modifier_check", details=modifier_result, messages=[]))
                 return
 
-            # Units validation
+            # Units validation with EMG handling
             units_result = validators['units'].validate(hcfa_data)
+            
+            # Check for EMG bundle before failing unit validation
+            emg_bundle = units_result.get('details', {}).get('emg_bundle', {})
+            emg_bundle_found = emg_bundle and emg_bundle.get('found', False)
+            emg_violations = units_result.get('details', {}).get('emg_violations', [])
+            
+            # Only fail if it's not a valid EMG bundle or has EMG unit violations
             if units_result['status'] == "FAIL":
-                self.logger.log_validation(ValidationResult(**base_result, status="FAIL", validation_type="unit_check", details=units_result, messages=[]))
-                return
+                if emg_bundle_found and not emg_violations:
+                    # Valid EMG bundle with proper units - log and continue
+                    print(f"Valid EMG bundle detected: {emg_bundle.get('name')}. Continuing validation...")
+                else:
+                    # Regular failure or EMG with invalid units
+                    if emg_bundle and emg_bundle.get('codes', []):
+                        print(f"EMG codes detected but validation failed")
+                    
+                    self.logger.log_validation(ValidationResult(**base_result, status="FAIL", validation_type="unit_check", details=units_result, messages=units_result.get('messages', [])))
+                    return
 
             # Bundle check - If order is already marked as bundled, skip further validation
             if self.db_service.check_bundle(order_id, validators['conn']):
@@ -121,7 +136,6 @@ class BillReviewApplication:
                 messages=[f"Error processing file: {str(e)}"]
             ))
 
-
     def run(self):
         """Main execution method."""
         with self.db_service.connect_db() as conn:
@@ -139,7 +153,7 @@ class BillReviewApplication:
             print(f"Found {total_files} files to process")
 
             for index, json_file in enumerate(json_files, 1):
-                print(f"Processing file {index}/{total_files}: {json_file.name}")
+                #print(f"Processing file {index}/{total_files}: {json_file.name}")
                 self.process_file(json_file, validators)
 
         # Save results
